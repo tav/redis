@@ -497,6 +497,8 @@ int main(int argc, char **argv) {
     int firstarg;
     char **argvcopy;
 
+    config.connection_type = REDIS_TCP_CONNECTION;
+    config.unix_domain_socket = "/tmp/redis.sock";
     config.hostip = "127.0.0.1";
     config.hostport = 6379;
     config.repeat = 1;
