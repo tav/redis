@@ -47,9 +47,14 @@
 #define REDIS_CMD_BULK 2
 #define REDIS_CMD_MULTIBULK 4
 
+#define REDIS_TCP_CONNECTION 1
+#define REDIS_UNIX_CONNECTION 2
+
 #define REDIS_NOTUSED(V) ((void) V)
 
 static struct config {
+    int connection_type;
+    char *unix_domain_socket;
     char *hostip;
     int hostport;
     long repeat;
@@ -72,12 +77,22 @@ static int cliConnect(void) {
     static int fd = ANET_ERR;
 
     if (fd == ANET_ERR) {
-        fd = anetTcpConnect(err,config.hostip,config.hostport);
-        if (fd == ANET_ERR) {
-            fprintf(stderr, "Could not connect to Redis at %s:%d: %s", config.hostip, config.hostport, err);
-            return -1;
+        if (config.connection_type == REDIS_TCP_CONNECTION) {
+            fd = anetTcpConnect(err,config.hostip,config.hostport);
+            if (fd == ANET_ERR) {
+                fprintf(stderr, "Could not connect to Redis at %s:%d: %s",
+                        config.hostip, config.hostport, err);
+                return -1;
+            }
+            anetTcpNoDelay(NULL,fd);
+        } else {
+            fd = anetUnixConnect(err,config.unix_domain_socket);
+            if (fd == ANET_ERR) {
+                fprintf(stderr, "Could not connect to Redis at %s: %s",
+                        config.unix_domain_socket, err);
+                return -1;
+            }
         }
-        anetTcpNoDelay(NULL,fd);
     }
     return fd;
 }
@@ -286,7 +301,7 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
 }
 
 static int parseOptions(int argc, char **argv) {
-    int i;
+    int i, connection_set = 0;
 
     for (i = 1; i < argc; i++) {
         int lastarg = i==argc-1;
@@ -298,11 +313,30 @@ static int parseOptions(int argc, char **argv) {
                 exit(1);
             }
             config.hostip = ip;
+            if (connection_set) {
+                if (config.connection_type != REDIS_TCP_CONNECTION) {
+                    printf("Cannot use TCP and Unix domain sockets together.\n");
+                    exit(1);
+                }
+            }
+            config.connection_type = REDIS_TCP_CONNECTION;
+            connection_set = 1;
             i++;
         } else if (!strcmp(argv[i],"-h") && lastarg) {
             usage();
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[i+1]);
+            i++;
+        } else if (!strcmp(argv[i],"-u") && !lastarg) {
+            config.unix_domain_socket = zstrdup(argv[i+1]);
+            if (connection_set) {
+                if (config.connection_type != REDIS_UNIX_CONNECTION) {
+                    printf("Cannot use TCP and Unix domain sockets together.\n");
+                    exit(1);
+                }
+            }
+            config.connection_type = REDIS_UNIX_CONNECTION;
+            connection_set = 1;
             i++;
         } else if (!strcmp(argv[i],"-r") && !lastarg) {
             config.repeat = strtoll(argv[i+1],NULL,10);
@@ -345,7 +379,7 @@ static sds readArgFromStdin(void) {
 }
 
 static void usage() {
-    fprintf(stderr, "usage: redis-cli [-iv] [-h host] [-p port] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 arg3 ... argN\n");
+    fprintf(stderr, "usage: redis-cli [-iv] [-h host] [-p port] [-u unix_domain_socket] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 arg3 ... argN\n");
     fprintf(stderr, "usage: echo \"argN\" | redis-cli -c [-h host] [-p port] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 ... arg(N-1)\n");
     fprintf(stderr, "\nIf a pipe from standard input is detected this data is used as last argument.\n\n");
     fprintf(stderr, "example: cat /etc/passwd | redis-cli set my_passwd\n");
