@@ -778,8 +778,8 @@ void initServer() {
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
     if (!server.connection_type) {
-        redisLog(REDIS_WARNING, "Configured to not listen anywhere, exiting.");
-        exit(1);
+        redisLog(REDIS_WARNING, "Connection type not specified, defaulting to TCP.");
+        server.connection_type = REDIS_TCP_CONNECTION;
     }
     if (server.connection_type & REDIS_TCP_CONNECTION) {
         server.ipfd = anetTcpServer(server.neterr, server.port, server.bindaddr);
