@@ -11,11 +11,11 @@ int listMatchObjects(void *a, void *b) {
     return equalStringObjects(a,b);
 }
 
-redisClient *createClient(int fd) {
+redisClient *createClient(int fd, int connection_type) {
     redisClient *c = zmalloc(sizeof(*c));
 
     anetNonBlock(NULL,fd);
-    if (server.connection_type == REDIS_TCP_CONNECTION)
+    if (connection_type == REDIS_TCP_CONNECTION)
         anetTcpNoDelay(NULL,fd);
     if (!c) return NULL;
     selectDb(c,0);
@@ -158,10 +158,10 @@ void addReplyBulkCString(redisClient *c, char *s) {
     }
 }
 
-void acceptCommonHandler(int cfd) {
+void acceptCommonHandler(int cfd, int connection_type) {
     redisClient *c;
 
-    if ((c = createClient(cfd)) == NULL) {
+    if ((c = createClient(cfd, connection_type)) == NULL) {
         redisLog(REDIS_WARNING,"Error allocating resoures for the client");
         close(cfd); /* May be already closed, just ignore errors */
         return;
@@ -196,7 +196,7 @@ void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
-    acceptCommonHandler(cfd);
+    acceptCommonHandler(cfd, REDIS_TCP_CONNECTION);
 }
 
 void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
@@ -211,7 +211,7 @@ void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     redisLog(REDIS_VERBOSE,"Accepted new unix domain socket connection");
-    acceptCommonHandler(cfd);
+    acceptCommonHandler(cfd, REDIS_UNIX_CONNECTION);
 }
 
 static void freeClientArgv(redisClient *c) {

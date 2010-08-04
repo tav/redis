@@ -327,7 +327,7 @@ static int parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[i+1]);
             i++;
-        } else if (!strcmp(argv[i],"-u") && !lastarg) {
+        } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.unix_domain_socket = zstrdup(argv[i+1]);
             if (connection_set) {
                 if (config.connection_type != REDIS_UNIX_CONNECTION) {
@@ -379,8 +379,8 @@ static sds readArgFromStdin(void) {
 }
 
 static void usage() {
-    fprintf(stderr, "usage: redis-cli [-iv] [-h host] [-p port] [-u unix_domain_socket] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 arg3 ... argN\n");
-    fprintf(stderr, "usage: echo \"argN\" | redis-cli -c [-h host] [-p port] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 ... arg(N-1)\n");
+    fprintf(stderr, "usage: redis-cli [-iv] [-h host] [-p port] [-s unix_domain_socket] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 arg3 ... argN\n");
+    fprintf(stderr, "usage: echo \"argN\" | redis-cli -c [-h host] [-p port] [-s unix_domain_socket] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 ... arg(N-1)\n");
     fprintf(stderr, "\nIf a pipe from standard input is detected this data is used as last argument.\n\n");
     fprintf(stderr, "example: cat /etc/passwd | redis-cli set my_passwd\n");
     fprintf(stderr, "example: redis-cli get my_passwd\n");

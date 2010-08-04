@@ -67,8 +67,12 @@ void loadServerConfig(char *filename) {
         } else if (!strcasecmp(argv[0],"connection") && argc == 2) {
             if (!strcasecmp(argv[1],"tcp")) server.connection_type = REDIS_TCP_CONNECTION;
             else if (!strcasecmp(argv[1],"unix")) server.connection_type = REDIS_UNIX_CONNECTION;
+            else if (!strcasecmp(argv[1],"tcp+unix"))
+                server.connection_type = REDIS_TCP_CONNECTION | REDIS_UNIX_CONNECTION;
+            else if (!strcasecmp(argv[1],"unix+tcp"))
+                server.connection_type = REDIS_TCP_CONNECTION | REDIS_UNIX_CONNECTION;
             else {
-                err = "Invalid connection type. Must be one of tcp, unix";
+                err = "Invalid connection type. Must be one of tcp, unix, tcp+unix";
                 goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {

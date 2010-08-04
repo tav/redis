@@ -458,7 +458,7 @@ void parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[i+1]);
             i++;
-        } else if (!strcmp(argv[i],"-u") && !lastarg) {
+        } else if (!strcmp(argv[i],"-s") && !lastarg) {
             config.unix_domain_socket = zstrdup(argv[i+1]);
             if (connection_set) {
                 if (config.connection_type != REDIS_UNIX_CONNECTION) {
@@ -493,7 +493,7 @@ void parseOptions(int argc, char **argv) {
             printf("Usage: redis-benchmark [-h <host>] [-p <port>] [-c <clients>] [-n <requests]> [-k <boolean>]\n\n");
             printf(" -h <hostname>      Server hostname (default 127.0.0.1)\n");
             printf(" -p <hostname>      Server port (default 6379)\n");
-            printf(" -u <socket-path>   Server unix domain socket path\n");
+            printf(" -s <socket-file>   Server unix socket file path\n");
             printf(" -c <clients>       Number of parallel connections (default 50)\n");
             printf(" -n <requests>      Total number of requests (default 10000)\n");
             printf(" -d <size>          Data size of SET/GET value in bytes (default 2)\n");

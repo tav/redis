@@ -332,8 +332,6 @@ struct sharedObjectsStruct {
 /* Global server state structure */
 struct redisServer {
     pthread_t mainthread;
-    int port;
-    int fd;
     redisDb *db;
     long long dirty;            /* changes to DB from the last save */
     list *clients;
@@ -369,7 +367,6 @@ struct redisServer {
     struct saveparam *saveparams;
     int saveparamslen;
     char *logfile;
-    char *bindaddr;
     char *dbfilename;
     char *appendfilename;
     char *requirepass;
@@ -429,9 +426,13 @@ struct redisServer {
      * awake the main thread. The followings are the two pipe FDs. */
     int io_ready_pipe_read;
     int io_ready_pipe_write;
-    /* Unix domain sockets */
+    /* Network connections */
     int connection_type;
+    int sofd;
     char *unix_domain_socket;
+    int ipfd;
+    int port;
+    char *bindaddr;
     /* Virtual memory stats */
     unsigned long long vm_stats_used_pages;
     unsigned long long vm_stats_swapped_objects;
@@ -575,7 +576,7 @@ dictType hashDictType;
  *----------------------------------------------------------------------------*/
 
 /* networking.c -- Networking and Client related operations */
-redisClient *createClient(int fd);
+redisClient *createClient(int fd, int connection_type);
 void closeTimedoutClients(void);
 void freeClient(redisClient *c);
 void resetClient(redisClient *c);

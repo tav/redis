@@ -697,12 +697,10 @@ void createSharedObjects(void) {
 
 void initServerConfig() {
     server.dbnum = REDIS_DEFAULT_DBNUM;
-    server.port = REDIS_SERVERPORT;
     server.verbosity = REDIS_VERBOSE;
     server.maxidletime = REDIS_MAXIDLETIME;
     server.saveparams = NULL;
     server.logfile = NULL; /* NULL = log on standard output */
-    server.bindaddr = NULL;
     server.glueoutputbuf = 1;
     server.daemonize = 0;
     server.appendonly = 0;
@@ -732,8 +730,12 @@ void initServerConfig() {
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
     server.list_max_ziplist_value = REDIS_LIST_MAX_ZIPLIST_VALUE;
     server.shutdown_asap = 0;
-    server.connection_type = REDIS_TCP_CONNECTION;
+    server.connection_type = 0;
+    server.sofd = -1;
     server.unix_domain_socket = zstrdup("/tmp/redis.sock");
+    server.ipfd = -1;
+    server.bindaddr = NULL;
+    server.port = REDIS_SERVERPORT;
 
     resetServerSaveParams();
 
@@ -775,15 +777,20 @@ void initServer() {
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-    if (server.connection_type == REDIS_TCP_CONNECTION) {
-        server.fd = anetTcpServer(server.neterr, server.port, server.bindaddr);
-        if (server.fd == -1) {
+    if (!server.connection_type) {
+        redisLog(REDIS_WARNING, "Configured to not listen anywhere, exiting.");
+        exit(1);
+    }
+    if (server.connection_type & REDIS_TCP_CONNECTION) {
+        server.ipfd = anetTcpServer(server.neterr, server.port, server.bindaddr);
+        if (server.ipfd == -1) {
             redisLog(REDIS_WARNING, "Opening TCP port: %s", server.neterr);
             exit(1);
         }
-    } else {
-        server.fd = anetUnixServer(server.neterr, server.unix_domain_socket);
-        if (server.fd == -1) {
+    }
+    if (server.connection_type & REDIS_UNIX_CONNECTION) {
+        server.sofd = anetUnixServer(server.neterr, server.unix_domain_socket);
+        if (server.sofd == -1) {
             redisLog(REDIS_WARNING, "Unix Domain Socket %s: %s",
                      server.unix_domain_socket, server.neterr);
             exit(1);
@@ -815,11 +822,12 @@ void initServer() {
     server.stat_starttime = time(NULL);
     server.unixtime = time(NULL);
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
-    if (server.connection_type == REDIS_TCP_CONNECTION) {
-        if (aeCreateFileEvent(server.el, server.fd, AE_READABLE,
+    if (server.connection_type & REDIS_TCP_CONNECTION) {
+        if (aeCreateFileEvent(server.el, server.ipfd, AE_READABLE,
             acceptTcpHandler, NULL) == AE_ERR) oom("creating file event");
-    } else {
-        if (aeCreateFileEvent(server.el, server.fd, AE_READABLE,
+    }
+    if (server.connection_type & REDIS_UNIX_CONNECTION) {
+        if (aeCreateFileEvent(server.el, server.sofd, AE_READABLE,
             acceptUnixHandler, NULL) == AE_ERR) oom("creating file event");
     }
 
@@ -1432,9 +1440,10 @@ int main(int argc, char **argv) {
         if (rdbLoad(server.dbfilename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from disk: %ld seconds",time(NULL)-start);
     }
-    if (server.connection_type == REDIS_TCP_CONNECTION) {
+    if (server.connection_type & REDIS_TCP_CONNECTION) {
         redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
-    } else {
+    }
+    if (server.connection_type & REDIS_UNIX_CONNECTION) {
         redisLog(REDIS_NOTICE,"The server is now ready to accept connections on %s",
                  server.unix_domain_socket);
     }

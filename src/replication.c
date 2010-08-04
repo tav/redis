@@ -445,7 +445,7 @@ int syncWithMaster(void) {
         close(fd);
         return REDIS_ERR;
     }
-    server.master = createClient(fd);
+    server.master = createClient(fd, REDIS_TCP_CONNECTION);
     server.master->flags |= REDIS_MASTER;
     server.master->authenticated = 1;
     server.replstate = REDIS_REPL_CONNECTED;
