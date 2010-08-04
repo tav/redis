@@ -50,6 +50,9 @@
 #define REPLY_BULK 2
 #define REPLY_MBULK 3
 
+#define REDIS_TCP_CONNECTION 1
+#define REDIS_UNIX_CONNECTION 2
+
 #define CLIENT_CONNECTING 0
 #define CLIENT_SENDQUERY 1
 #define CLIENT_READREPLY 2
@@ -69,8 +72,10 @@ static struct config {
     int randomkeys;
     int randomkeys_keyspacelen;
     aeEventLoop *el;
+    int connection_type;
     char *hostip;
     int hostport;
+    char *unix_domain_socket;
     int keepalive;
     long long start;
     long long totlatency;
@@ -340,13 +345,22 @@ static client createClient(void) {
     client c = zmalloc(sizeof(struct _client));
     char err[ANET_ERR_LEN];
 
-    c->fd = anetTcpNonBlockConnect(err,config.hostip,config.hostport);
-    if (c->fd == ANET_ERR) {
-        zfree(c);
-        fprintf(stderr,"Connect: %s\n",err);
-        return NULL;
+    if (config.connection_type == REDIS_TCP_CONNECTION) {
+        c->fd = anetTcpNonBlockConnect(err,config.hostip,config.hostport);
+        if (c->fd == ANET_ERR) {
+            zfree(c);
+            fprintf(stderr,"Connect: %s\n",err);
+            return NULL;
+        }
+        anetTcpNoDelay(NULL,c->fd);
+    } else {
+        c->fd = anetUnixNonBlockConnect(err,config.unix_domain_socket);
+        if (c->fd == ANET_ERR) {
+            zfree(c);
+            fprintf(stderr,"Connect: %s\n",err);
+            return NULL;
+        }
     }
-    anetTcpNoDelay(NULL,c->fd);
     c->obuf = sdsempty();
     c->ibuf = sdsempty();
     c->mbulk = -1;
@@ -411,7 +425,7 @@ static void endBenchmark(char *title) {
 }
 
 void parseOptions(int argc, char **argv) {
-    int i;
+    int i, connection_set = 0;
 
     for (i = 1; i < argc; i++) {
         int lastarg = i==argc-1;
@@ -432,9 +446,28 @@ void parseOptions(int argc, char **argv) {
                 exit(1);
             }
             config.hostip = ip;
+            if (connection_set) {
+                if (config.connection_type != 1) {
+                    printf("Cannot use TCP and Unix domain sockets together.\n");
+                    exit(1);
+                }
+            }
+            config.connection_type = REDIS_TCP_CONNECTION;
+            connection_set = 1;
             i++;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[i+1]);
+            i++;
+        } else if (!strcmp(argv[i],"-u") && !lastarg) {
+            config.unix_domain_socket = zstrdup(argv[i+1]);
+            if (connection_set) {
+                if (config.connection_type != 2) {
+                    printf("Cannot use TCP and Unix domain sockets together.\n");
+                    exit(1);
+                }
+            }
+            config.connection_type = REDIS_UNIX_CONNECTION;
+            connection_set = 1;
             i++;
         } else if (!strcmp(argv[i],"-d") && !lastarg) {
             config.datasize = atoi(argv[i+1]);
@@ -460,6 +493,7 @@ void parseOptions(int argc, char **argv) {
             printf("Usage: redis-benchmark [-h <host>] [-p <port>] [-c <clients>] [-n <requests]> [-k <boolean>]\n\n");
             printf(" -h <hostname>      Server hostname (default 127.0.0.1)\n");
             printf(" -p <hostname>      Server port (default 6379)\n");
+            printf(" -u <socket-path>   Server unix domain socket path\n");
             printf(" -c <clients>       Number of parallel connections (default 50)\n");
             printf(" -n <requests>      Total number of requests (default 10000)\n");
             printf(" -d <size>          Data size of SET/GET value in bytes (default 2)\n");
@@ -503,8 +537,10 @@ int main(int argc, char **argv) {
     config.clients = listCreate();
     config.latency = zmalloc(sizeof(int)*(MAX_LATENCY+1));
 
+    config.connection_type = 1;
     config.hostip = "127.0.0.1";
     config.hostport = 6379;
+    config.unix_domain_socket = "/tmp/redis.sock";
 
     parseOptions(argc,argv);
 
