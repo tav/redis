@@ -775,10 +775,19 @@ void initServer() {
     createSharedObjects();
     server.el = aeCreateEventLoop();
     server.db = zmalloc(sizeof(redisDb)*server.dbnum);
-    server.fd = anetTcpServer(server.neterr, server.port, server.bindaddr);
-    if (server.fd == -1) {
-        redisLog(REDIS_WARNING, "Opening TCP port: %s", server.neterr);
-        exit(1);
+    if (server.connection_type == REDIS_TCP_CONNECTION) {
+        server.fd = anetTcpServer(server.neterr, server.port, server.bindaddr);
+        if (server.fd == -1) {
+            redisLog(REDIS_WARNING, "Opening TCP port: %s", server.neterr);
+            exit(1);
+        }
+    } else {
+        server.fd = anetUnixServer(server.neterr, server.unix_domain_socket);
+        if (server.fd == -1) {
+            redisLog(REDIS_WARNING, "Unix Domain Socket %s: %s",
+                     server.unix_domain_socket, server.neterr);
+            exit(1);
+        }
     }
     for (j = 0; j < server.dbnum; j++) {
         server.db[j].dict = dictCreate(&dbDictType,NULL);
@@ -806,8 +815,13 @@ void initServer() {
     server.stat_starttime = time(NULL);
     server.unixtime = time(NULL);
     aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL);
-    if (aeCreateFileEvent(server.el, server.fd, AE_READABLE,
-        acceptHandler, NULL) == AE_ERR) oom("creating file event");
+    if (server.connection_type == REDIS_TCP_CONNECTION) {
+        if (aeCreateFileEvent(server.el, server.fd, AE_READABLE,
+            acceptTcpHandler, NULL) == AE_ERR) oom("creating file event");
+    } else {
+        if (aeCreateFileEvent(server.el, server.fd, AE_READABLE,
+            acceptUnixHandler, NULL) == AE_ERR) oom("creating file event");
+    }
 
     if (server.appendonly) {
         server.appendfd = open(server.appendfilename,O_WRONLY|O_APPEND|O_CREAT,0644);
@@ -1418,7 +1432,12 @@ int main(int argc, char **argv) {
         if (rdbLoad(server.dbfilename) == REDIS_OK)
             redisLog(REDIS_NOTICE,"DB loaded from disk: %ld seconds",time(NULL)-start);
     }
-    redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
+    if (server.connection_type == REDIS_TCP_CONNECTION) {
+        redisLog(REDIS_NOTICE,"The server is now ready to accept connections on port %d", server.port);
+    } else {
+        redisLog(REDIS_NOTICE,"The server is now ready to accept connections on %s",
+                 server.unix_domain_socket);
+    }
     aeSetBeforeSleepProc(server.el,beforeSleep);
     aeMain(server.el);
     aeDeleteEventLoop(server.el);

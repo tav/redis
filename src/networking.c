@@ -15,7 +15,8 @@ redisClient *createClient(int fd) {
     redisClient *c = zmalloc(sizeof(*c));
 
     anetNonBlock(NULL,fd);
-    anetTcpNoDelay(NULL,fd);
+    if (server.connection_type == REDIS_TCP_CONNECTION)
+        anetTcpNoDelay(NULL,fd);
     if (!c) return NULL;
     selectDb(c,0);
     c->fd = fd;
@@ -157,23 +158,12 @@ void addReplyBulkCString(redisClient *c, char *s) {
     }
 }
 
-void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
-    int cport, cfd;
-    char cip[128];
+void acceptCommonHandler(int cfd) {
     redisClient *c;
-    REDIS_NOTUSED(el);
-    REDIS_NOTUSED(mask);
-    REDIS_NOTUSED(privdata);
 
-    cfd = anetAccept(server.neterr, fd, cip, &cport);
-    if (cfd == AE_ERR) {
-        redisLog(REDIS_VERBOSE,"Accepting client connection: %s", server.neterr);
-        return;
-    }
-    redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
     if ((c = createClient(cfd)) == NULL) {
         redisLog(REDIS_WARNING,"Error allocating resoures for the client");
-        close(cfd); /* May be already closed, just ingore errors */
+        close(cfd); /* May be already closed, just ignore errors */
         return;
     }
     /* If maxclient directive is set and this is one client more... close the
@@ -191,6 +181,37 @@ void acceptHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
         return;
     }
     server.stat_numconnections++;
+}
+
+void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cport, cfd;
+    char cip[128];
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(mask);
+    REDIS_NOTUSED(privdata);
+
+    cfd = anetTcpAccept(server.neterr, fd, cip, &cport);
+    if (cfd == AE_ERR) {
+        redisLog(REDIS_VERBOSE,"Accepting client connection: %s", server.neterr);
+        return;
+    }
+    redisLog(REDIS_VERBOSE,"Accepted %s:%d", cip, cport);
+    acceptCommonHandler(cfd);
+}
+
+void acceptUnixHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
+    int cfd;
+    REDIS_NOTUSED(el);
+    REDIS_NOTUSED(mask);
+    REDIS_NOTUSED(privdata);
+
+    cfd = anetUnixAccept(server.neterr, fd);
+    if (cfd == AE_ERR) {
+        redisLog(REDIS_VERBOSE,"Accepting client connection: %s", server.neterr);
+        return;
+    }
+    redisLog(REDIS_VERBOSE,"Accepted new unix domain socket connection");
+    acceptCommonHandler(cfd);
 }
 
 static void freeClientArgv(redisClient *c) {
