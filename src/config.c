@@ -64,6 +64,13 @@ void loadServerConfig(char *filename) {
             if (server.maxidletime < 0) {
                 err = "Invalid timeout value"; goto loaderr;
             }
+        } else if (!strcasecmp(argv[0],"connection") && argc == 2) {
+            if (!strcasecmp(argv[1],"tcp")) server.connection_type = 1;
+            else if (!strcasecmp(argv[1],"unix")) server.connection_type = 2;
+            else {
+                err = "Invalid connection type. Must be one of tcp, unix";
+                goto loaderr;
+            }
         } else if (!strcasecmp(argv[0],"port") && argc == 2) {
             server.port = atoi(argv[1]);
             if (server.port < 1 || server.port > 65535) {
@@ -71,6 +78,8 @@ void loadServerConfig(char *filename) {
             }
         } else if (!strcasecmp(argv[0],"bind") && argc == 2) {
             server.bindaddr = zstrdup(argv[1]);
+        } else if (!strcasecmp(argv[0],"unixsocket") && argc == 2) {
+            server.unix_domain_socket = zstrdup(argv[1]);
         } else if (!strcasecmp(argv[0],"save") && argc == 3) {
             int seconds = atoi(argv[1]);
             int changes = atoi(argv[2]);

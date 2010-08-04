@@ -425,6 +425,9 @@ struct redisServer {
      * awake the main thread. The followings are the two pipe FDs. */
     int io_ready_pipe_read;
     int io_ready_pipe_write;
+    /* Unix domain sockets */
+    int connection_type;
+    char *unix_domain_socket;
     /* Virtual memory stats */
     unsigned long long vm_stats_used_pages;
     unsigned long long vm_stats_swapped_objects;
