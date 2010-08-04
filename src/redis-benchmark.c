@@ -447,7 +447,7 @@ void parseOptions(int argc, char **argv) {
             }
             config.hostip = ip;
             if (connection_set) {
-                if (config.connection_type != 1) {
+                if (config.connection_type != REDIS_TCP_CONNECTION) {
                     printf("Cannot use TCP and Unix domain sockets together.\n");
                     exit(1);
                 }
@@ -461,7 +461,7 @@ void parseOptions(int argc, char **argv) {
         } else if (!strcmp(argv[i],"-u") && !lastarg) {
             config.unix_domain_socket = zstrdup(argv[i+1]);
             if (connection_set) {
-                if (config.connection_type != 2) {
+                if (config.connection_type != REDIS_UNIX_CONNECTION) {
                     printf("Cannot use TCP and Unix domain sockets together.\n");
                     exit(1);
                 }
