@@ -732,7 +732,7 @@ void initServerConfig() {
     server.list_max_ziplist_entries = REDIS_LIST_MAX_ZIPLIST_ENTRIES;
     server.list_max_ziplist_value = REDIS_LIST_MAX_ZIPLIST_VALUE;
     server.shutdown_asap = 0;
-    server.connection_type = 1;
+    server.connection_type = REDIS_TCP_CONNECTION;
     server.unix_domain_socket = zstrdup("/tmp/redis.sock");
 
     resetServerSaveParams();

@@ -65,8 +65,8 @@ void loadServerConfig(char *filename) {
                 err = "Invalid timeout value"; goto loaderr;
             }
         } else if (!strcasecmp(argv[0],"connection") && argc == 2) {
-            if (!strcasecmp(argv[1],"tcp")) server.connection_type = 1;
-            else if (!strcasecmp(argv[1],"unix")) server.connection_type = 2;
+            if (!strcasecmp(argv[1],"tcp")) server.connection_type = REDIS_TCP_CONNECTION;
+            else if (!strcasecmp(argv[1],"unix")) server.connection_type = REDIS_UNIX_CONNECTION;
             else {
                 err = "Invalid connection type. Must be one of tcp, unix";
                 goto loaderr;

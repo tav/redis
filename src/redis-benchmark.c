@@ -537,7 +537,7 @@ int main(int argc, char **argv) {
     config.clients = listCreate();
     config.latency = zmalloc(sizeof(int)*(MAX_LATENCY+1));
 
-    config.connection_type = 1;
+    config.connection_type = REDIS_TCP_CONNECTION;
     config.hostip = "127.0.0.1";
     config.hostport = 6379;
     config.unix_domain_socket = "/tmp/redis.sock";
