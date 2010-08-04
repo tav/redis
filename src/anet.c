@@ -32,6 +32,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
@@ -177,6 +178,43 @@ int anetTcpNonBlockConnect(char *err, char *addr, int port)
     return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONBLOCK);
 }
 
+static int anetUnixGenericConnect(char *err, char *path, int flags)
+{
+    int s, on = 1;
+    struct sockaddr_un sa;
+
+    if ((s = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
+        anetSetError(err, "creating socket: %s\n", strerror(errno));
+        return ANET_ERR;
+    }
+    setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    sa.sun_family = AF_UNIX;
+    strncpy(sa.sun_path, path, (sizeof(sa) - sizeof(short)));
+    if (flags & ANET_CONNECT_NONBLOCK) {
+        if (anetNonBlock(err,s) != ANET_OK)
+            return ANET_ERR;
+    }
+    if (connect(s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
+        if (errno == EINPROGRESS &&
+            flags & ANET_CONNECT_NONBLOCK)
+            return s;
+        anetSetError(err, "connect: %s\n", strerror(errno));
+        close(s);
+        return ANET_ERR;
+    }
+    return s;
+}
+
+int anetUnixConnect(char *err, char *path)
+{
+    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONE);
+}
+
+int anetUnixNonBlockConnect(char *err, char *path)
+{
+    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
+}
+
 /* Like read(2) but make sure 'count' is read before to return
  * (unless error or EOF condition is encountered) */
 int anetRead(int fd, char *buf, int count)
@@ -207,12 +245,11 @@ int anetWrite(int fd, char *buf, int count)
     return totlen;
 }
 
-int anetTcpServer(char *err, int port, char *bindaddr)
+int anetCreateSocket(char *err, int domain, int type)
 {
     int s, on = 1;
-    struct sockaddr_in sa;
-    
-    if ((s = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+
+    if ((s = socket(domain, type, 0)) == -1) {
         anetSetError(err, "socket: %s\n", strerror(errno));
         return ANET_ERR;
     }
@@ -221,6 +258,27 @@ int anetTcpServer(char *err, int port, char *bindaddr)
         close(s);
         return ANET_ERR;
     }
+    return s;
+}
+
+int anetListen(char *err, int s)
+{
+    if (listen(s, 511) == -1) { /* the magic 511 constant is from nginx */
+        anetSetError(err, "listen: %s\n", strerror(errno));
+        close(s);
+        return ANET_ERR;
+    }
+    return s;
+}
+
+int anetTcpServer(char *err, int port, char *bindaddr)
+{
+    int s;
+    struct sockaddr_in sa;
+
+    s = anetCreateSocket(err, AF_INET, SOCK_STREAM);
+    if (s == ANET_ERR)
+        return ANET_ERR;
     memset(&sa,0,sizeof(sa));
     sa.sin_family = AF_INET;
     sa.sin_port = htons(port);
@@ -237,15 +295,31 @@ int anetTcpServer(char *err, int port, char *bindaddr)
         close(s);
         return ANET_ERR;
     }
-    if (listen(s, 511) == -1) { /* the magic 511 constant is from nginx */
-        anetSetError(err, "listen: %s\n", strerror(errno));
+    return anetListen(err, s);
+}
+
+int anetUnixServer(char *err, char *path)
+{
+    int s;
+    struct sockaddr_un sa;
+
+    s = anetCreateSocket(err, AF_UNIX, SOCK_STREAM);
+    if (s == ANET_ERR)
+        return ANET_ERR;
+    unlink(path);
+    memset(&sa,0,sizeof(sa));
+    sa.sun_family = AF_UNIX;
+    strncpy(sa.sun_path, path, (sizeof(sa) - sizeof(short)));
+    if (bind(s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
+        anetSetError(err, "bind: %s\n", strerror(errno));
         close(s);
         return ANET_ERR;
     }
+    return anetListen(err, s);
     return s;
 }
 
-int anetAccept(char *err, int serversock, char *ip, int *port)
+int anetTcpAccept(char *err, int serversock, char *ip, int *port)
 {
     int fd;
     struct sockaddr_in sa;
@@ -266,5 +340,27 @@ int anetAccept(char *err, int serversock, char *ip, int *port)
     }
     if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
     if (port) *port = ntohs(sa.sin_port);
+    return fd;
+}
+
+int anetUnixAccept(char *err, int serversock)
+{
+    int fd;
+    struct sockaddr_un sa;
+    unsigned int saLen;
+
+    while(1) {
+        saLen = sizeof(sa);
+        fd = accept(serversock, (struct sockaddr*)&sa, &saLen);
+        if (fd == -1) {
+            if (errno == EINTR)
+                continue;
+            else {
+                anetSetError(err, "accept: %s\n", strerror(errno));
+                return ANET_ERR;
+            }
+        }
+        break;
+    }
     return fd;
 }
