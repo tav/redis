@@ -67,6 +67,7 @@ static struct config {
     int pubsub_mode;
     int raw_output; /* output mode per command */
     int tty; /* flag for default output format */
+    int stdinarg; /* get last arg from stdin. (-x option) */
     char mb_sep;
     char *auth;
     char *historyfile;
@@ -111,7 +112,7 @@ static sds cliReadLine(int fd) {
         ssize_t ret;
 
         ret = read(fd,&c,1);
-        if (ret == -1) {
+        if (ret <= 0) {
             sdsfree(line);
             return NULL;
         } else if ((ret == 0) || (c == '\n')) {
@@ -266,12 +267,32 @@ static int selectDb(int fd) {
     return 0;
 }
 
+static void showInteractiveHelp(void) {
+    printf(
+    "\n"
+    "Welcome to redis-cli " REDIS_VERSION "!\n"
+    "Just type any valid Redis command to see a pretty printed output.\n"
+    "\n"
+    "It is possible to quote strings, like in:\n"
+    "  set \"my key\" \"some string \\xff\\n\"\n"
+    "\n"
+    "You can find a list of valid Redis commands at\n"
+    "  http://code.google.com/p/redis/wiki/CommandReference\n"
+    "\n"
+    "Note: redis-cli supports line editing, use up/down arrows for history."
+    "\n\n");
+}
+
 static int cliSendCommand(int argc, char **argv, int repeat) {
     char *command = argv[0];
     int fd, j, retval = 0;
     sds cmd;
 
     config.raw_output = !strcasecmp(command,"info");
+    if (!strcasecmp(command,"help")) {
+        showInteractiveHelp();
+        return 0;
+    }
     if (!strcasecmp(command,"shutdown")) config.shutdown = 1;
     if (!strcasecmp(command,"monitor")) config.monitor_mode = 1;
     if (!strcasecmp(command,"subscribe") ||
@@ -297,7 +318,8 @@ static int cliSendCommand(int argc, char **argv, int repeat) {
     while(repeat--) {
         anetWrite(fd,cmd,sdslen(cmd));
         while (config.monitor_mode) {
-            cliReadSingleLineReply(fd,0);
+            if (cliReadSingleLineReply(fd,0)) exit(1);
+            printf("\n");
         }
 
         if (config.pubsub_mode) {
@@ -339,6 +361,8 @@ static int parseOptions(int argc, char **argv) {
             i++;
         } else if (!strcmp(argv[i],"-h") && lastarg) {
             usage();
+        } else if (!strcmp(argv[i],"-x")) {
+            config.stdinarg = 1;
         } else if (!strcmp(argv[i],"-p") && !lastarg) {
             config.hostport = atoi(argv[i+1]);
             i++;
@@ -402,9 +426,8 @@ static sds readArgFromStdin(void) {
 
 static void usage() {
     fprintf(stderr, "usage: redis-cli [-iv] [-h host] [-p port] [-s unix_domain_socket] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 arg3 ... argN\n");
-    fprintf(stderr, "usage: echo \"argN\" | redis-cli -c [-h host] [-p port] [-s unix_domain_socket] [-a authpw] [-r repeat_times] [-n db_num] cmd arg1 arg2 ... arg(N-1)\n");
-    fprintf(stderr, "\nIf a pipe from standard input is detected this data is used as last argument.\n\n");
-    fprintf(stderr, "example: cat /etc/passwd | redis-cli set my_passwd\n");
+    fprintf(stderr, "usage: echo \"argN\" | redis-cli -x [options] cmd arg1 arg2 ... arg(N-1)\n\n");
+    fprintf(stderr, "example: cat /etc/passwd | redis-cli -x set my_passwd\n");
     fprintf(stderr, "example: redis-cli get my_passwd\n");
     fprintf(stderr, "example: redis-cli -r 100 lpush mylist x\n");
     fprintf(stderr, "\nRun in interactive mode: redis-cli -i or just don't pass any command\n");
@@ -469,9 +492,7 @@ static void repl() {
 
 static int noninteractive(int argc, char **argv) {
     int retval = 0;
-    struct stat s;
-    fstat(fileno(stdin), &s);
-    if (S_ISFIFO(s.st_mode) || S_ISREG(s.st_mode)) { /* pipe, regular file */
+    if (config.stdinarg) {
         argv = zrealloc(argv, (argc+1)*sizeof(char*));
         argv[argc] = readArgFromStdin();
         retval = cliSendCommand(argc+1, argv, config.repeat);
@@ -496,6 +517,7 @@ int main(int argc, char **argv) {
     config.monitor_mode = 0;
     config.pubsub_mode = 0;
     config.raw_output = 0;
+    config.stdinarg = 0;
     config.auth = NULL;
     config.historyfile = NULL;
     config.tty = isatty(fileno(stdout)) || (getenv("FAKETTY") != NULL);
@@ -513,10 +535,16 @@ int main(int argc, char **argv) {
 
     if (config.auth != NULL) {
         char *authargv[2];
+        int dbnum = config.dbnum;
 
+        /* We need to save the real configured database number and set it to
+         * zero here, otherwise cliSendCommand() will try to perform the
+         * SELECT command before the authentication, and it will fail. */
+        config.dbnum = 0;
         authargv[0] = "AUTH";
         authargv[1] = config.auth;
         cliSendCommand(2, convertToSds(2, authargv), 1);
+        config.dbnum = dbnum; /* restore the right DB number */
     }
 
     /* Start interactive mode when no command is provided */

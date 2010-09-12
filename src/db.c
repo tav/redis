@@ -123,6 +123,11 @@ robj *dbRandomKey(redisDb *db) {
 
 /* Delete a key, value, and associated expiration entry if any, from the DB */
 int dbDelete(redisDb *db, robj *key) {
+    /* If VM is enabled make sure to awake waiting clients for this key:
+     * deleting the key will kill the I/O thread bringing the key from swap
+     * to memory, so the client will never be notified and unblocked if we
+     * don't do it now. */
+    if (server.vm_enabled) handleClientsBlockedOnSwappedKey(db,key);
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
@@ -221,19 +226,19 @@ void keysCommand(redisClient *c) {
     dictIterator *di;
     dictEntry *de;
     sds pattern = c->argv[1]->ptr;
-    int plen = sdslen(pattern);
+    int plen = sdslen(pattern), allkeys;
     unsigned long numkeys = 0;
     robj *lenobj = createObject(REDIS_STRING,NULL);
 
     di = dictGetIterator(c->db->dict);
     addReply(c,lenobj);
     decrRefCount(lenobj);
+    allkeys = (pattern[0] == '*' && pattern[1] == '\0');
     while((de = dictNext(di)) != NULL) {
         sds key = dictGetEntryKey(de);
         robj *keyobj;
 
-        if ((pattern[0] == '*' && pattern[1] == '\0') ||
-            stringmatchlen(pattern,plen,key,sdslen(key),0)) {
+        if (allkeys || stringmatchlen(pattern,plen,key,sdslen(key),0)) {
             keyobj = createStringObject(key,sdslen(key));
             if (expireIfNeeded(c->db,keyobj) == 0) {
                 addReplyBulk(c,keyobj);

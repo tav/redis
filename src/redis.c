@@ -1190,6 +1190,7 @@ sds genRedisInfoString(void) {
         "blocked_clients:%d\r\n"
         "used_memory:%zu\r\n"
         "used_memory_human:%s\r\n"
+        "mem_fragmentation_ratio:%.2f\r\n"
         "changes_since_last_save:%lld\r\n"
         "bgsave_in_progress:%d\r\n"
         "last_save_time:%ld\r\n"
@@ -1216,6 +1217,7 @@ sds genRedisInfoString(void) {
         server.blpop_blocked_clients,
         zmalloc_used_memory(),
         hmem,
+        zmalloc_get_fragmentation_ratio(),
         server.dirty,
         server.bgsavechildpid != -1,
         server.lastsave,
@@ -1345,7 +1347,8 @@ void freeMemoryIfNeeded(void) {
         if (tryFreeOneObjectFromFreelist() == REDIS_OK) continue;
         for (j = 0; j < server.dbnum; j++) {
             int minttl = -1;
-            robj *minkey = NULL;
+            sds minkey = NULL;
+            robj *keyobj = NULL;
             struct dictEntry *de;
 
             if (dictSize(server.db[j].expires)) {
@@ -1362,7 +1365,9 @@ void freeMemoryIfNeeded(void) {
                         minttl = t;
                     }
                 }
-                dbDelete(server.db+j,minkey);
+                keyobj = createStringObject(minkey,sdslen(minkey));
+                dbDelete(server.db+j,keyobj);
+                decrRefCount(keyobj);
             }
         }
         if (!freed) return; /* nothing to free... */
