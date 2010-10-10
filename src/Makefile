@@ -15,8 +15,8 @@ endif
 CCOPT= $(CFLAGS) $(CCLINK) $(ARCH) $(PROF)
 DEBUG?= -g -rdynamic -ggdb 
 
-INSTALL_TOP= /usr/local
-INSTALL_BIN= $(INSTALL_TOP)/bin
+PREFIX= /usr/local
+INSTALL_BIN= $(PREFIX)/bin
 INSTALL= cp -p
 
 OBJ = adlist.o ae.o anet.o dict.o redis.o sds.o zmalloc.o lzf_c.o lzf_d.o pqsort.o zipmap.o sha1.o ziplist.o release.o networking.o util.o object.o db.o replication.o rdb.o t_string.o t_list.o t_set.o t_zset.o t_hash.o config.o aof.o vm.o pubsub.o multi.o debug.o sort.o intset.o
@@ -153,6 +153,7 @@ noopt:
 	make PROF="-pg" ARCH="-arch i386"
 
 install: all
+	mkdir -p $(INSTALL_BIN)
 	$(INSTALL) $(PRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(BENCHPRGNAME) $(INSTALL_BIN)
 	$(INSTALL) $(CLIPRGNAME) $(INSTALL_BIN)

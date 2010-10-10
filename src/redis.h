@@ -47,6 +47,7 @@
 #define REDIS_MAX_WRITE_PER_EVENT (1024*64)
 #define REDIS_REQUEST_MAX_SIZE (1024*1024*256) /* max bytes in inline command */
 #define REDIS_SHARED_INTEGERS 10000
+#define REDIS_REPLY_CHUNK_BYTES (5*1500) /* 5 TCP packets with default MTU */
 
 /* Connection Types */
 #define REDIS_TCP_CONNECTION   1
@@ -289,6 +290,7 @@ typedef struct redisClient {
     int dictid;
     sds querybuf;
     robj **argv, **mbargv;
+    char *newline;          /* pointing to the detected newline in querybuf */
     int argc, mbargc;
     long bulklen;            /* bulk read len. -1 if not in bulk read mode */
     int multibulk;          /* multi bulk command format active */
@@ -313,6 +315,10 @@ typedef struct redisClient {
     list *watched_keys;     /* Keys WATCHED for MULTI/EXEC CAS */
     dict *pubsub_channels;  /* channels a client is interested in (SUBSCRIBE) */
     list *pubsub_patterns;  /* patterns a client is interested in (SUBSCRIBE) */
+
+    /* Response buffer */
+    int bufpos;
+    char buf[REDIS_REPLY_CHUNK_BYTES];
 } redisClient;
 
 struct saveparam {
@@ -493,13 +499,14 @@ typedef struct _redisSortOperation {
 } redisSortOperation;
 
 /* ZSETs use a specialized version of Skiplists */
-
 typedef struct zskiplistNode {
-    struct zskiplistNode **forward;
-    struct zskiplistNode *backward;
-    unsigned int *span;
-    double score;
     robj *obj;
+    double score;
+    struct zskiplistNode *backward;
+    struct zskiplistLevel {
+        struct zskiplistNode *forward;
+        unsigned int span;
+    } level[];
 } zskiplistNode;
 
 typedef struct zskiplist {
@@ -596,6 +603,8 @@ void resetClient(redisClient *c);
 void sendReplyToClient(aeEventLoop *el, int fd, void *privdata, int mask);
 void sendReplyToClientWritev(aeEventLoop *el, int fd, void *privdata, int mask);
 void addReply(redisClient *c, robj *obj);
+void *addDeferredMultiBulkLength(redisClient *c);
+void setDeferredMultiBulkLength(redisClient *c, void *node, long length);
 void addReplySds(redisClient *c, sds s);
 void processInputBuffer(redisClient *c);
 void acceptTcpHandler(aeEventLoop *el, int fd, void *privdata, int mask);
@@ -605,10 +614,22 @@ void addReplyBulk(redisClient *c, robj *obj);
 void addReplyBulkCString(redisClient *c, char *s);
 void addReply(redisClient *c, robj *obj);
 void addReplySds(redisClient *c, sds s);
+void addReplyError(redisClient *c, char *err);
+void addReplyStatus(redisClient *c, char *status);
 void addReplyDouble(redisClient *c, double d);
 void addReplyLongLong(redisClient *c, long long ll);
-void addReplyUlong(redisClient *c, unsigned long ul);
+void addReplyMultiBulkLen(redisClient *c, long length);
 void *dupClientReplyValue(void *o);
+
+#ifdef __GNUC__
+void addReplyErrorFormat(redisClient *c, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+void addReplyStatusFormat(redisClient *c, const char *fmt, ...)
+    __attribute__((format(printf, 2, 3)));
+#else
+void addReplyErrorFormat(redisClient *c, const char *fmt, ...);
+void addReplyStatusFormat(redisClient *c, const char *fmt, ...);
+#endif
 
 /* List data type */
 void listTypeTryConversion(robj *subject, robj *value);
@@ -696,7 +717,7 @@ void backgroundRewriteDoneHandler(int statloc);
 /* Sorted sets data type */
 zskiplist *zslCreate(void);
 void zslFree(zskiplist *zsl);
-void zslInsert(zskiplist *zsl, double score, robj *obj);
+zskiplistNode *zslInsert(zskiplist *zsl, double score, robj *obj);
 
 /* Core functions */
 void freeMemoryIfNeeded(void);

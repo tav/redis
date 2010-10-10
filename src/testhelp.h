@@ -1,6 +1,12 @@
-/* SDSLib, A C dynamic strings library
+/* This is a really minimal testing framework for C.
  *
- * Copyright (c) 2006-2010, Salvatore Sanfilippo <antirez at gmail dot com>
+ * Example:
+ *
+ * test_cond("Check if 1 == 1", 1==1)
+ * test_cond("Check if 5 > 10", 5 > 10)
+ * test_report()
+ *
+ * Copyright (c) 2010, Salvatore Sanfilippo <antirez at gmail dot com>
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,50 +34,21 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef __SDS_H
-#define __SDS_H
+#ifndef __TESTHELP_H
+#define __TESTHELP_H
 
-#include <sys/types.h>
-#include <stdarg.h>
-
-typedef char *sds;
-
-struct sdshdr {
-    int len;
-    int free;
-    char buf[];
-};
-
-sds sdsnewlen(const void *init, size_t initlen);
-sds sdsnew(const char *init);
-sds sdsempty();
-size_t sdslen(const sds s);
-sds sdsdup(const sds s);
-void sdsfree(sds s);
-size_t sdsavail(sds s);
-sds sdscatlen(sds s, void *t, size_t len);
-sds sdscat(sds s, char *t);
-sds sdscpylen(sds s, char *t, size_t len);
-sds sdscpy(sds s, char *t);
-
-sds sdscatvprintf(sds s, const char *fmt, va_list ap);
-#ifdef __GNUC__
-sds sdscatprintf(sds s, const char *fmt, ...)
-    __attribute__((format(printf, 2, 3)));
-#else
-sds sdscatprintf(sds s, const char *fmt, ...);
-#endif
-
-sds sdstrim(sds s, const char *cset);
-sds sdsrange(sds s, int start, int end);
-void sdsupdatelen(sds s);
-int sdscmp(sds s1, sds s2);
-sds *sdssplitlen(char *s, int len, char *sep, int seplen, int *count);
-void sdsfreesplitres(sds *tokens, int count);
-void sdstolower(sds s);
-void sdstoupper(sds s);
-sds sdsfromlonglong(long long value);
-sds sdscatrepr(sds s, char *p, size_t len);
-sds *sdssplitargs(char *line, int *argc);
+int __failed_tests = 0;
+int __test_num = 0;
+#define test_cond(descr,_c) do { \
+    __test_num++; printf("%d - %s: ", __test_num, descr); \
+    if(_c) printf("PASSED\n"); else {printf("FAILED\n"); __failed_tests++;} \
+} while(0);
+#define test_report() do { \
+    printf("%d tests, %d passed, %d failed\n", __test_num, \
+                    __test_num-__failed_tests, __failed_tests); \
+    if (__failed_tests) { \
+        printf("=== WARNING === We have failed tests here...\n"); \
+    } \
+} while(0);
 
 #endif

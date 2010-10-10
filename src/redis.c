@@ -51,6 +51,7 @@
 #include <float.h>
 #include <math.h>
 #include <pthread.h>
+#include <sys/resource.h>
 
 /* Our shared "common" objects */
 
@@ -339,7 +340,7 @@ dictType zsetDictType = {
     NULL,                      /* val dup */
     dictEncObjKeyCompare,      /* key compare */
     dictRedisObjectDestructor, /* key destructor */
-    dictVanillaFree            /* val destructor of malloc(sizeof(double)) */
+    NULL                       /* val destructor */
 };
 
 /* Db->dict, keys are sds strings, vals are Redis objects. */
@@ -933,7 +934,7 @@ int processCommand(redisClient *c) {
     } else if (c->multibulk) {
         if (c->bulklen == -1) {
             if (((char*)c->argv[0]->ptr)[0] != '$') {
-                addReplySds(c,sdsnew("-ERR multi bulk protocol error\r\n"));
+                addReplyError(c,"multi bulk protocol error");
                 resetClient(c);
                 return 1;
             } else {
@@ -946,7 +947,7 @@ int processCommand(redisClient *c) {
                     bulklen < 0 || bulklen > 1024*1024*1024)
                 {
                     c->argc--;
-                    addReplySds(c,sdsnew("-ERR invalid bulk write count\r\n"));
+                    addReplyError(c,"invalid bulk write count");
                     resetClient(c);
                     return 1;
                 }
@@ -999,17 +1000,14 @@ int processCommand(redisClient *c) {
      * such wrong arity, bad command name and so forth. */
     cmd = lookupCommand(c->argv[0]->ptr);
     if (!cmd) {
-        addReplySds(c,
-            sdscatprintf(sdsempty(), "-ERR unknown command '%s'\r\n",
-                (char*)c->argv[0]->ptr));
+        addReplyErrorFormat(c,"unknown command '%s'",
+            (char*)c->argv[0]->ptr);
         resetClient(c);
         return 1;
     } else if ((cmd->arity > 0 && cmd->arity != c->argc) ||
                (c->argc < -cmd->arity)) {
-        addReplySds(c,
-            sdscatprintf(sdsempty(),
-                "-ERR wrong number of arguments for '%s' command\r\n",
-                cmd->name));
+        addReplyErrorFormat(c,"wrong number of arguments for '%s' command",
+            cmd->name);
         resetClient(c);
         return 1;
     } else if (cmd->flags & REDIS_CMD_BULK && c->bulklen == -1) {
@@ -1023,7 +1021,7 @@ int processCommand(redisClient *c) {
             bulklen < 0 || bulklen > 1024*1024*1024)
         {
             c->argc--;
-            addReplySds(c,sdsnew("-ERR invalid bulk write count\r\n"));
+            addReplyError(c,"invalid bulk write count");
             resetClient(c);
             return 1;
         }
@@ -1050,7 +1048,7 @@ int processCommand(redisClient *c) {
 
     /* Check if the user is authenticated */
     if (server.requirepass && !c->authenticated && cmd->proc != authCommand) {
-        addReplySds(c,sdsnew("-ERR operation not permitted\r\n"));
+        addReplyError(c,"operation not permitted");
         resetClient(c);
         return 1;
     }
@@ -1059,7 +1057,7 @@ int processCommand(redisClient *c) {
     if (server.maxmemory && (cmd->flags & REDIS_CMD_DENYOOM) &&
         zmalloc_used_memory() > server.maxmemory)
     {
-        addReplySds(c,sdsnew("-ERR command not allowed when used memory > 'maxmemory'\r\n"));
+        addReplyError(c,"command not allowed when used memory > 'maxmemory'");
         resetClient(c);
         return 1;
     }
@@ -1069,7 +1067,7 @@ int processCommand(redisClient *c) {
         &&
         cmd->proc != subscribeCommand && cmd->proc != unsubscribeCommand &&
         cmd->proc != psubscribeCommand && cmd->proc != punsubscribeCommand) {
-        addReplySds(c,sdsnew("-ERR only (P)SUBSCRIBE / (P)UNSUBSCRIBE / QUIT allowed in this context\r\n"));
+        addReplyError(c,"only (P)SUBSCRIBE / (P)UNSUBSCRIBE / QUIT allowed in this context");
         resetClient(c);
         return 1;
     }
@@ -1133,7 +1131,7 @@ void authCommand(redisClient *c) {
       addReply(c,shared.ok);
     } else {
       c->authenticated = 0;
-      addReplySds(c,sdscatprintf(sdsempty(),"-ERR invalid password\r\n"));
+      addReplyError(c,"invalid password");
     }
 }
 
@@ -1174,6 +1172,10 @@ sds genRedisInfoString(void) {
     time_t uptime = time(NULL)-server.stat_starttime;
     int j;
     char hmem[64];
+    struct rusage self_ru, c_ru;
+
+    getrusage(RUSAGE_SELF, &self_ru);
+    getrusage(RUSAGE_CHILDREN, &c_ru);
 
     bytesToHuman(hmem,zmalloc_used_memory());
     info = sdscatprintf(sdsempty(),
@@ -1185,6 +1187,10 @@ sds genRedisInfoString(void) {
         "process_id:%ld\r\n"
         "uptime_in_seconds:%ld\r\n"
         "uptime_in_days:%ld\r\n"
+        "used_cpu_sys:%.2f\r\n"
+        "used_cpu_user:%.2f\r\n"
+        "used_cpu_sys_childrens:%.2f\r\n"
+        "used_cpu_user_childrens:%.2f\r\n"
         "connected_clients:%d\r\n"
         "connected_slaves:%d\r\n"
         "blocked_clients:%d\r\n"
@@ -1212,6 +1218,10 @@ sds genRedisInfoString(void) {
         (long) getpid(),
         uptime,
         uptime/(3600*24),
+        (float)self_ru.ru_utime.tv_sec+(float)self_ru.ru_utime.tv_usec/1000000,
+        (float)self_ru.ru_stime.tv_sec+(float)self_ru.ru_stime.tv_usec/1000000,
+        (float)c_ru.ru_utime.tv_sec+(float)c_ru.ru_utime.tv_usec/1000000,
+        (float)c_ru.ru_stime.tv_sec+(float)c_ru.ru_stime.tv_usec/1000000,
         listLength(server.clients)-listLength(server.slaves),
         listLength(server.slaves),
         server.blpop_blocked_clients,
@@ -1367,6 +1377,7 @@ void freeMemoryIfNeeded(void) {
                 }
                 keyobj = createStringObject(minkey,sdslen(minkey));
                 dbDelete(server.db+j,keyobj);
+                server.stat_expiredkeys++;
                 decrRefCount(keyobj);
             }
         }
